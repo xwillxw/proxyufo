@@ -1,29 +1,17 @@
-use std::fs;
+use std::fs::{self, File};
+use std::io::{BufWriter, Write};
 use std::vec::Vec;
 use reqwest;
 use tokio;
-use std::str::Split;
-
-enum Protocol {
-    HTTP,
-    SOCKS4,
-    SOCKS5
-}
-
-struct Proxy {
-    ip: String,
-    port: String,
-    protocol: Protocol
-}
 
 #[tokio::main]
-async fn main() {
+async fn main() -> std::io::Result<()> {
 
     let path = "./preset/http.txt";
-
-    // create empty list in which proxy sources are stored
-    let mut http_list: Vec<String> = Vec::new();
-    let mut ip_list: Vec<&str> = Vec::new();
+    let mut http_list = Vec::new();
+    let mut split_list;
+    let mut ip_list = Vec::new();
+    let mut file = BufWriter::new(File::create("proxies.txt")?);
 
     // load proxy sources from text file into vec
     for line in fs::read_to_string(path).unwrap().lines() {
@@ -41,12 +29,19 @@ async fn main() {
             .await
             .unwrap();
 
-        let split_array = result.split("\n");
+        // split list into vec of strings
+        split_list = result.split("\n");
 
-        for part in split_array {
-            println!("{}", part);
+        // add strings to buffer
+        for part in split_list {
+            let _ = writeln!(ip_list, "{}", part);
         }
-
     }
 
+    // write buffer to file
+    let _ = file.write_all(&ip_list);
+    let _ = file.flush();
+
+    Ok(())
+    
 }
