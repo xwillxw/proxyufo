@@ -1,7 +1,8 @@
 use std::fs;
 use std::vec::Vec;
-use hyper_util::rt::TokioIo;
-use tokio::net::TcpStream;
+use reqwest;
+use tokio;
+use std::str::Split;
 
 enum Protocol {
     HTTP,
@@ -15,54 +16,37 @@ struct Proxy {
     protocol: Protocol
 }
 
+#[tokio::main]
+async fn main() {
 
-async fn scrape(path: &str) -> Result<(), Box<dyn std::error::Error + Send + Sync>>  {
+    let path = "./preset/http.txt";
 
     // create empty list in which proxy sources are stored
     let mut http_list: Vec<String> = Vec::new();
+    let mut ip_list: Vec<&str> = Vec::new();
 
     // load proxy sources from text file into vec
     for line in fs::read_to_string(path).unwrap().lines() {
-        http_list.push(line.to_string())
+        http_list.push(line.to_string());
     }
 
     // iterate through vec, scraping all proxies
-    for mut i in 0..http_list.len() {
+    for url in http_list {
+        
+        // scrape page content as string
+        let result = reqwest::get(url)
+            .await
+            .unwrap()
+            .text()
+            .await
+            .unwrap();
 
-         // Parse our URL and setup hyper client
-        if let Ok(url) = http_list[i].parse::<hyper::Uri>() {
+        let split_array = result.split("\n");
 
-            // Get the host and the port
-            let host = url.host().expect("uri has no host");
-            let port = url.port_u16().unwrap_or(80);
-
-            let address = format!("{}:{}", host, port);
-
-            // open tcp connection with remote host
-            let stream = TcpStream::connect(address).await?;
-
-            // Use an adapter to access something implementing `tokio::io` traits as if they implement
-            // `hyper::rt` IO traits.
-            let io = TokioIo::new(stream);
-
-            // Create the Hyper client
-            let (mut sender, conn) = hyper::client::conn::http1::handshake(io).await?;
-
-            // Spawn a task to poll the connection, driving the HTTP state
-            tokio::task::spawn(async move {
-                if let Err(err) = conn.await {
-                    println!("Connection failed: {:?}", err);
-                }
-            });
+        for part in split_array {
+            println!("{}", part);
         }
-        i += 1;
+
     }
-
-    Ok(())
-}
-
-fn main() {
-
-    let x = scrape("./preset/http.txt");
 
 }
