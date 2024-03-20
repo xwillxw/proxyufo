@@ -11,7 +11,7 @@ pub async fn scrape_proxies() -> std::io::Result<Vec<u8>>  {
     let mut http_list = Vec::new();
     let mut split_list;
     let mut ip_list = Vec::new();
-    let mut file = BufWriter::new(File::create("proxies.txt")?);
+    let mut file = BufWriter::new(File::create("./out/proxies.txt")?);
 
     // load proxy sources from text file into vec
     for line in fs::read_to_string(path).unwrap().lines() {
@@ -20,16 +20,27 @@ pub async fn scrape_proxies() -> std::io::Result<Vec<u8>>  {
     
     // iterate through vec, scraping all proxies
     for url in http_list {
+
         // scrape page content as string
-        let result = reqwest::get(url)
-            .await
-            .unwrap()
-            .text()
-            .await
-            .unwrap();
+        let result = reqwest::get(url).await;
+
+        // convert scrape to text
+        let scraped_text_result = match result {
+            Ok(text) => text
+                .text()
+                .await,
+            Err(error) => panic!("Problem scraping proxies: {:?}", error)
+        };
+
+        // handle any errors
+        let scraped_text = match scraped_text_result {
+            Ok(string) => string,
+            Err(error) => panic!("Problem scraping proxies: {:?}", error)
+        };
+            
 
         // split list into vec of strings
-        split_list = result.split("\n");
+        split_list = scraped_text.split("\n");
 
         // add strings to buffer
         for part in split_list {
