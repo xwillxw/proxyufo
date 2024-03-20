@@ -1,17 +1,17 @@
 use std::fs::{self, File};
-use std::io::{BufWriter, Write};
+use std::io::Write;
 use std::vec::Vec;
 use reqwest;
 use tokio;
 
 #[tokio::main]
-pub async fn scrape_proxies() -> std::io::Result<Vec<u8>>  {
+pub async fn scrape_proxies() {
 
     let path = "./preset/http.txt";
     let mut http_list = Vec::new();
     let mut split_list;
     let mut ip_list = Vec::new();
-    let mut file = BufWriter::new(File::create("./out/proxies.txt")?);
+    let mut file = File::create("./out/proxies.txt").unwrap();
 
     // load proxy sources from text file into vec
     for line in fs::read_to_string(path).unwrap().lines() {
@@ -50,8 +50,5 @@ pub async fn scrape_proxies() -> std::io::Result<Vec<u8>>  {
 
     // write buffer to file
     let _ = file.write_all(&ip_list);
-    let _ = file.flush();
-
-    Ok(ip_list)
-    
+    let _ = file.flush();    
 }
