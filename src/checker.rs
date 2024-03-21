@@ -1,8 +1,10 @@
 use std::fs::{self, File};
 use std::io::Write;
 use std::time::Duration;
+use crossterm::terminal::Clear;
 use reqwest::{Client, Proxy, StatusCode};
 
+#[derive(PartialEq, Debug)]
 enum ProxyStatusCodes {
     Hit,
     Err,
@@ -22,7 +24,6 @@ impl ProxyTest{
         match reqwest::Proxy::http(&self.url) {
             Ok(result) => {
                 self.build_client(result).await;
-                println!("HIT @ {}", self.ip)
             }
             Err(error) => {
                 println!("Error setting proxy:, {}", error)
@@ -31,18 +32,20 @@ impl ProxyTest{
         }
     
     async fn build_client(&mut self, result: Proxy) {
-
-        let ok = StatusCode::from_u16(200).unwrap();
         let timeout_duration = Duration::from_millis(3000);
         let client_result = Client::builder()
             .proxy(result)
             .timeout(timeout_duration)
             .build();
-    
+
+        //println!("{:?}",client_result);
+        //println!("{:?}", self.status);
+
         match client_result {
             Ok(client) => {
-                if self.send_request(client).await == ok {
+                if self.send_request(client).await == StatusCode::from_u16(200).unwrap() {
                     self.status = ProxyStatusCodes::Hit;
+                    
                 }
                 else {
                     self.status = ProxyStatusCodes::Err;
@@ -52,16 +55,18 @@ impl ProxyTest{
                 println!("Error building client: {}", error);
             }
         }
+
+       // println!("{:?}", self.status);
     }
     
     async fn send_request(&self, client: Client) -> StatusCode {    
-        let not_ok = StatusCode::from_u16(404).unwrap();
-    
-        match client.head("https://httpbin.org/").send().await {
-            Ok(response) => response.status(),
-            Err(error) => {
-                println!("No hit: {}", error);
-                not_ok
+        match client.get(&self.url).send().await {
+            Ok(response) => {
+                //println!("{:?}", response);
+                response.status()
+            }
+            Err(..) => {
+                return StatusCode::from_u16(401).unwrap();
             }
         }
     }
@@ -92,11 +97,18 @@ pub async fn check_proxies() {
         };
         
         current_proxy.check().await;
-        let _ = writeln!(checked_proxy_list, "{}", current_proxy.ip);
-    }
+        if current_proxy.status == ProxyStatusCodes::Hit {
+            println!("HIT @ {}", current_proxy.ip);
+            let _ = writeln!(checked_proxy_list, "{}", current_proxy.ip);
+        } else if current_proxy.status == ProxyStatusCodes::Err {
+            println!("No Hit")
+        } else {
+            println!("Error")
+        }
+        
 
     // write buffer to file
     let _ = out_path.write_all(&checked_proxy_list);
     let _ = out_path.flush();
-
+    }
 }

@@ -50,5 +50,8 @@ pub async fn scrape_proxies() {
 
     // write buffer to file
     let _ = file.write_all(&ip_list);
-    let _ = file.flush();    
+    let _ = file.flush(); 
+
+    println!("PUBLIC PROXY SCRAPE COMPLETE");
+   
 }
