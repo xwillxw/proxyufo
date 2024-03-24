@@ -1,12 +1,12 @@
 
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::Write;
-use std::thread::{self, current, JoinHandle};
 use std::time::Duration;
-use futures::Future;
-use reqwest::blocking::{self, get};
-use reqwest::{Client, Response, StatusCode};
+use futures::channel::oneshot::channel;
+use futures::channel::{self, mpsc};
+use reqwest::StatusCode;
 use threadpool::ThreadPool;
+use std::sync::{Arc, Mutex};
 
 #[derive(Debug, PartialEq, Clone)]
 enum ProxyStatusCodes {
@@ -34,11 +34,16 @@ impl Proxy{
 
     // proxy scraper
     #[tokio::main]
-    pub async fn scrape() -> Vec<Proxy> {
+    pub async fn scrape() {
 
         let mut proxy_list: Vec<Proxy> = Vec::new();
         let http_in_path = "./preset/http.txt";
         let mut http_list = Vec::new();
+        let mut out_path = match File::create("./out/proxies.txt".to_owned()) {
+            Ok(path) => path,
+            Err(error) => panic!("Failed to parse file path: {:?}", error)
+        };
+        let mut buffer = Vec::new();
 
         // load proxy sources from text file into vec
         for line in fs::read_to_string(http_in_path).unwrap().lines() {
@@ -76,84 +81,103 @@ impl Proxy{
                     ProxyStatusCodes::Err
                 ))
             }
+            
         }
 
-        proxy_list
-    }
-
-    // proxy checker
-    #[tokio::main]
-    pub async fn check(proxy_list: Vec<Proxy>) -> Vec<Proxy> {
-
-        let mut temp_proxy_list = proxy_list.clone();
-        let mut handle: JoinHandle<()>;
-
-
-        // thread pool setup
-
-        let n_workers = 16;
-        let pool = ThreadPool::new(n_workers);
-
-        // create client with timeout duration
-        
-        for current_proxy in proxy_list {
-;
-            pool.execute(|| {
-                //println!("Thread spawned!");
-                current_proxy.send_request();
-                //thread::sleep(Duration::from_millis(3000));
-            });
-
-        }
-
-        pool.join();
-                    
-        // send http head request from client, hit if http 200 ok
-           
         
 
-        temp_proxy_list
-    }    
-
-    pub fn write_proxies(list: &Vec<Proxy>, name: String) {
-
-        let mut out_path = match File::create("./out/".to_owned() + &name) {
-            Ok(path) => path,
-            Err(error) => panic!("Failed to parse file path: {:?}", error)
-        };
-
-        let mut buffer = Vec::new();
-
-        for proxy in list {
+        for proxy in proxy_list {
             let _ = writeln!(buffer, "{}", proxy.ip);
         }
 
         // write buffer to file
-        let _ = out_path.write_all(&buffer);
-        let _ = out_path.flush();
+        match out_path.write_all(&buffer) {
+            Ok(write) => write,
+            Err(error) => panic!("Error writing proxies.txt: {}", error)
+        }
+
+        match out_path.flush() {
+            Ok(write) => write,
+            Err(error) => panic!("Error flushing after scrape: {}", error)
+        }
+
+        println!("Proxies scraped");
+
     }
 
-    fn send_request(self) {
+    // proxy checker
+    #[tokio::main]
+    pub async fn check() {
 
-        let client_request = match reqwest::blocking::ClientBuilder::new().timeout(Duration::from_millis(3000)).build() {
-            Ok(client_request) => client_request.get(self.url),
-            Err(error) => panic!("Error building client request: {}", error)
+        let mut proxy_list: Vec<Proxy> = Vec::new();
+        let http_proxies_in_path = "./out/proxies.txt";
+        let mut http_output_file = match File::create("./out/http.txt".to_owned()) {
+            Ok(path) => path,
+            Err(error) => panic!("Failed to parse file path: {:?}", error)
         };
+        let mut buffer = Vec::new();
 
-        match client_request.send()  {
-            Ok(response) => {
-                if response.status() == StatusCode::from_u16(200).unwrap() {
-                    println!("HIT @ {}", self.ip);
-                } else {
-                    println!("No Hit, error code received: {}", response.status());
+        for line in fs::read_to_string(http_proxies_in_path).unwrap().lines() {
+            proxy_list.push(Proxy::new(
+                line.to_owned(),
+                "http://".to_owned() + &line,
+                ProxyStatusCodes::Err
+            ))
+        }
+
+        // thread pool setup
+        let n_workers = 200;
+        let pool = ThreadPool::new(n_workers);
+        let checked_proxy_list: Arc<Mutex<Vec<Proxy>>> = Arc::new(Mutex::new(Vec::new()));
+
+
+        // create client with timeout duration
+        for current_proxy in proxy_list { 
+
+            let current_proxy_local = current_proxy.clone();
+            let checked_proxy_list_local = Arc::clone(&checked_proxy_list);
+
+
+            pool.execute(move || {
+
+
+                let client_request = match reqwest::blocking::ClientBuilder::new().timeout(Duration::from_millis(3000)).build() {
+                    Ok(client_request) => client_request.get(&current_proxy.url),
+                    Err(error) => panic!("Error building client request: {}", error)
+                };
+        
+                match client_request.send()  {
+                    Ok(response) => {
+                        if response.status() == StatusCode::from_u16(200).unwrap() {
+                            println!("HIT @ {}", current_proxy.ip);
+                            let mut checked_proxy_list_local = checked_proxy_list_local.lock().unwrap();
+                            checked_proxy_list_local.push(current_proxy_local)
+                        }
+                    }
+                    Err(..) => {}
                 }
             }
-            Err(..) => {
-                println!("No Hit!");
-            }
+        );}
+
+        pool.join();
+
+        let checked_proxy_list = checked_proxy_list.lock().unwrap();
+        
+        for proxy in checked_proxy_list.iter() {
+            let _ = writeln!(buffer, "{}", proxy.ip);
         }
-    }
 
+        // write buffer to file
+        match http_output_file.write_all(&buffer) {
+            Ok(write) => write,
+            Err(error) => panic!("Error writing proxies.txt: {}", error)
+        }
+
+        match http_output_file.flush() {
+            Ok(write) => write,
+            Err(error) => panic!("Error flushing after scrape: {}", error)
+        }
+
+        println!("Proxies written!")
+    }    
 }
-
-//.get(self.url)
