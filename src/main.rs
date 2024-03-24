@@ -1,11 +1,10 @@
-mod checker;
-mod scraper;
-use checker::check_proxies;
-use scraper::scrape_proxies;
+mod proxy;
+use proxy::Proxy;
+
 
 fn main() {
 
-    scrape_proxies();
-    check_proxies();
+    Proxy::scrape();
+    Proxy::check();
     
 }
