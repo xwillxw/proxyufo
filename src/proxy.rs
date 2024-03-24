@@ -1,18 +1,20 @@
+
 use std::fs::{self, File};
 use std::io::Write;
 use std::thread::{self, current, JoinHandle};
 use std::time::Duration;
 use futures::Future;
-use reqwest::dns::Resolve;
+use reqwest::blocking::{self, get};
 use reqwest::{Client, Response, StatusCode};
+use threadpool::ThreadPool;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 enum ProxyStatusCodes {
     Hit,
     Err
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct Proxy {
     ip: String,
     url: String,
@@ -83,28 +85,34 @@ impl Proxy{
     #[tokio::main]
     pub async fn check(proxy_list: Vec<Proxy>) -> Vec<Proxy> {
 
-        let mut checked_proxy_list: Vec<Proxy> = Vec::new();
-        let mut checked_proxy_list_future: Vec<Future<()>> = Vec::new();
+        let mut temp_proxy_list = proxy_list.clone();
         let mut handle: JoinHandle<()>;
+
+
+        // thread pool setup
+
+        let n_workers = 16;
+        let pool = ThreadPool::new(n_workers);
 
         // create client with timeout duration
         
-
-        // send http head request from client, hit if http 200 ok
         for current_proxy in proxy_list {
-            
-            handle = thread::spawn(|| {
-                let new_proxy = Proxy::send_request(Client::builder().timeout(Duration::from_millis(3000)).build().unwrap(), current_proxy);
-                checked_proxy_list_future.push(new_proxy);
+;
+            pool.execute(|| {
+                //println!("Thread spawned!");
+                current_proxy.send_request();
+                //thread::sleep(Duration::from_millis(3000));
             });
 
-            handle.join().unwrap();
+        }
 
-        }    
-
+        pool.join();
+                    
+        // send http head request from client, hit if http 200 ok
+           
         
 
-        checked_proxy_list
+        temp_proxy_list
     }    
 
     pub fn write_proxies(list: &Vec<Proxy>, name: String) {
@@ -125,22 +133,27 @@ impl Proxy{
         let _ = out_path.flush();
     }
 
-    async fn send_request(client: Client, proxy: Proxy) -> Proxy {
-        match client.head(&proxy.url).send().await {
+    fn send_request(self) {
+
+        let client_request = match reqwest::blocking::ClientBuilder::new().timeout(Duration::from_millis(3000)).build() {
+            Ok(client_request) => client_request.get(self.url),
+            Err(error) => panic!("Error building client request: {}", error)
+        };
+
+        match client_request.send()  {
             Ok(response) => {
                 if response.status() == StatusCode::from_u16(200).unwrap() {
-                    println!("HIT @ {}", &proxy.ip);
-                    return Proxy::new(proxy.ip, proxy.url, ProxyStatusCodes::Hit);
+                    println!("HIT @ {}", self.ip);
                 } else {
                     println!("No Hit, error code received: {}", response.status());
-                    return Proxy::new(proxy.ip, proxy.url, ProxyStatusCodes::Err);
                 }
             }
             Err(..) => {
                 println!("No Hit!");
-                return Proxy::new(proxy.ip, proxy.url, ProxyStatusCodes::Err);
             }
         }
     }
 
 }
+
+//.get(self.url)
