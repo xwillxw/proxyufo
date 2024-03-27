@@ -11,3 +11,4 @@ futures = "0.3.30" # for our async / await blocks
 tokio = { version = "1.36.0", features = ["full"] } # for our async runtime
 crossterm = "0.27.0"
 threadpool = "1.8.1"
+async-std = "1.10.0"
