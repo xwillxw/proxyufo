@@ -4,6 +4,7 @@ use std::io::Write;
 use std::time::Duration;
 use futures::channel::oneshot::channel;
 use futures::channel::{self, mpsc};
+use futures::io::BufWriter;
 use reqwest::StatusCode;
 use threadpool::ThreadPool;
 use std::sync::{Arc, Mutex};
@@ -39,14 +40,16 @@ impl Proxy{
         let mut proxy_list: Vec<Proxy> = Vec::new();
         let http_in_path = "./preset/http.txt";
         let mut http_list = Vec::new();
-        let mut out_path = match File::create("./out/proxies.txt".to_owned()) {
+        let mut out_path = match BufWriter::new(File::create("./out/proxies.txt".to_owned()).expect("Error creating file.")){
             Ok(path) => path,
             Err(error) => panic!("Failed to parse file path: {:?}", error)
         };
         let mut buffer = Vec::new();
-
+        
+        let file_content = fs::read_to_string(http_in_path).expect("Error reading file");
+        
         // load proxy sources from text file into vec
-        for line in fs::read_to_string(http_in_path).unwrap().lines() {
+        for line in file_content.lines() {
             http_list.push(line.to_string());
         }
         
@@ -154,7 +157,13 @@ impl Proxy{
                             checked_proxy_list_local.push(current_proxy_local)
                         }
                     }
-                    Err(..) => {}
+                    Err(error) => {
+                        println!("Error with the request: {:?}", error)
+
+                        if(error.is_timeout()) {
+                            print!("Request Timed Out!!");
+                        }
+                    }
                 }
             }
         );}
